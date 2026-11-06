@@ -144,13 +144,42 @@ stages:
               echo "=== 8. Obteniendo URL de la Aplicación ==="
               oc get route jee-msa-web-demo-pipeline -o jsonpath='{"URL: http://"}{.spec.host}{"\n"}'
             displayName: 'Descarga CLI, Login y Despliegue Docker'
+  
+  # ==========================================
+  # STAGE 4: PRUEBA DE HUMO (SMOKE TEST)
+  # ==========================================
+  - stage: SmokeTest
+    displayName: 'Smoke Test'
+    dependsOn: CD
+    condition: succeeded()
+    variables:
+      APP_URL: 'http://jee-msa-web-demo-pipeline-wcajisaca-dev.apps.rm2.thpm.p1.openshiftapps.com'
+    jobs:
+      - job: smoke_test
+        displayName: 'Verificar que la app responde'
+        steps:
+          - checkout: none
+          - script: |
+              echo "Probando $(APP_URL) ..."
+              for i in 1 2 3 4 5 6; do
+                CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$(APP_URL)/")
+                echo "Intento $i: HTTP $CODE"
+                if [ "$CODE" != "000" ] && [ "$CODE" -lt 500 ]; then
+                  echo "La aplicación está respondiendo correctamente."
+                  exit 0
+                fi
+                sleep 10
+              done
+              echo "##vso[task.logissue type=error]La aplicación no respondió después de 6 intentos."
+              exit 1
+            displayName: 'Prueba de humo HTTP'
 
   # ==========================================
-  # STAGE 4: NOTIFICACIONES (NOTIFICATIONS)
+  # STAGE 5: NOTIFICACIONES (NOTIFICATIONS)
   # ==========================================
   - stage: Notifications
     displayName: 'Notificar'
-    dependsOn: [CI, Approval, CD]
+    dependsOn: [CI, Approval, CD, SmokeTest]
     condition: always()
     jobs:
       - job: send_status_email
